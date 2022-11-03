@@ -51,14 +51,6 @@ export class IrNode {
   }
 
   chainEffect(after: IrNode) {
-    // unchain current effects
-    for (let node of this.effect.prev) {
-      node.effect.next = remove(node.effect.next, (x) => x == this)
-    }
-    for (let node of this.effect.next) {
-      node.effect.prev = remove(node.effect.next, (x) => x == this)
-    }
-
     after.effect.next.push(this)
     if (this.opcode != OpCode.Merge) {
       this.effect.prev = [after]
@@ -148,9 +140,9 @@ export class NodeDumper {
   s = ''
 
   beginDump(start: IrNode) {
-    this.s += 'digraph {\n'
-    this.s += 'graph [rankdir=TB]'
-    this.s += 'node [shape=record]\n'
+    this.s += 'digraph nodes {\n'
+    this.s += 'graph [newrank=true, ranksep=1]'
+    this.s += 'node [shape=record, minheight=0.02]\n'
     this.dumpNodes(start)
     this.dumpEdges(start)
     this.s += '}'
@@ -176,13 +168,13 @@ export class NodeDumper {
       this.pushNodeNext(n)
     }
     this.s += `
-    subgraph {
+    subgraph cluster {
       node [color=blue]
 ${effect_subgraph}
     }
-    subgraph {
-    ${data_subgraph}
-    }
+    
+${data_subgraph}
+    
     `
   }
 
@@ -197,25 +189,27 @@ ${effect_subgraph}
 
       // dump effect edges
       for (let eff of n.effect.prev) {
+        let constraint: string[] = ['color=blue']
+
         let target = this.nodeIdStr(n)
         if (n.opcode == OpCode.Merge) {
           target += ':e' + this.nodeIdStr(eff)
         }
-        this.s += `${this.nodeIdStr(eff)} -> ${target} [color=blue]\n`
+        this.s += `${this.nodeIdStr(eff)}:c -> ${target} [${constraint.join(',')}]\n`
       }
 
       let it = n.param_head
       while (it != undefined) {
         let constraint: string[] = []
+
         if (n.opcode == OpCode.Phi) {
-          this.s += `${this.nodeIdStr(n)}:${this.paramIdStr(it)} -> ${this.nodeIdStr(
-            it.node
-          )} [${constraint.join(',')}]\n`
-        } else {
-          this.s += `${this.nodeIdStr(it.node)} -> ${this.nodeIdStr(n)}:${this.paramIdStr(
-            it
-          )} [${constraint.join(',')}]\n`
+          // back edges pointing to phi should not constrain
         }
+
+        this.s += `${this.nodeIdStr(it.node)}:c -> ${this.nodeIdStr(n)}:${this.paramIdStr(
+          it
+        )} [${constraint.join(',')}]\n`
+
         it = it.param_next
       }
 
@@ -278,10 +272,18 @@ ${effect_subgraph}
     }
     let print_label = ''
     if (left_boxes.length != 0) print_label += left_boxes.join('|') + '|'
-    print_label += label
+    print_label += '<c>' + label
     print_label += '|' + Object.values(OpCode)[n.opcode]
     if (n.v != undefined) print_label += '|' + n.v
     if (right_boxes.length != 0) print_label += '|' + right_boxes.join('|')
+
+    let options: string[] = []
+    options.push('label="${print_label}"')
+    if (n.opcode == OpCode.Start) {
+      options.push('rank=min')
+    } else if (n.opcode == OpCode.Return) {
+      options.push('rank=max')
+    }
 
     return `${label} [label="${print_label}"]\n`
   }
